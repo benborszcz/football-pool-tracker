@@ -1,5 +1,6 @@
 import requests
 import re
+import datetime
 
 # Define the Team class
 class Team:
@@ -24,9 +25,11 @@ class Game:
         self.home_team = None
         self.away_team = None
         self.projected_winner = None
-        self.spread = None
+        self.spread: str = None
         self.over_under = None
         self.winner = None
+        self.date_string = event.get('date', 'Unknown Date')
+        self.date = datetime.datetime.strptime(self.date_string, "%Y-%m-%dT%H:%MZ")
 
         # Create Team objects for home and away teams
         for team_info in self.competitors:
@@ -54,6 +57,7 @@ class Game:
                     self.projected_winner = self.home_team
                 elif self.away_team.abbreviation == winner_abbreviation:
                     self.projected_winner = self.away_team
+                    self.spread = -self.spread  # Flip the spread if the away team is the projected winner
 
         # Extract situation information if the game is not final
         if self.status != 'Final':
@@ -76,5 +80,8 @@ def fetch_games():
     for event in events:
         game = Game(event)
         games.append(game)
+    
+    # Sort the games by date
+    games.sort(key=lambda x: x.date)
     
     return games

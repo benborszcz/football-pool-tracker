@@ -24,17 +24,38 @@ class Picks:
             if game is None:
                 print(f"Unable to find game: {pick['game']}")
                 continue
-            team = find_team_by_abbreviation(game, pick['team'])
+            team = None
+            if game.bowl_name == 'CFP National Championship Pres. by AT&T':
+                team = find_team_by_abbreviation(self.picks[-2].game, pick['team'])
+                if team is None:
+                    team = find_team_by_abbreviation(self.picks[-1].game, pick['team'])
+            else:
+                team = find_team_by_abbreviation(game, pick['team'])
             self.picks.append(Pick(game, team))
     
     
     def analyze_picks(self, games):
         for pick in self.picks:
             if pick.team is None: 
-                pick.correct = False
                 continue
             if pick.game and pick.game.winner:
                 pick.correct = pick.game.winner.abbreviation == pick.team.abbreviation
+
+    def calculate_streak(self):
+        streak_type = None
+        streak_count = 0
+        for pick in reversed(self.picks):
+            if pick.correct is None:  # Skip games without a result
+                continue
+            if streak_type is None:
+                streak_type = 'W' if pick.correct else 'L'
+                streak_count = 1
+            elif ((pick.correct and streak_type == 'W') or
+                  (not pick.correct and streak_type == 'L')):
+                streak_count += 1
+            else:
+                break  # Streak ended
+        return f"{streak_type}{streak_count}" if streak_count > 0 else ""
 
 class Pick:
     def __init__(self, game, team):

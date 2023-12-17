@@ -56,6 +56,29 @@ def game_to_json(game):
         'winner': game.winner.abbreviation if game.winner else None,
     }
 
+def calculate_winner_percentage(game):
+    # Assuming the spread is a float where a negative value favors the home team
+    # and a positive value favors the away team. The larger the absolute value,
+    # the stronger the favoritism. This is a simplified example and not accurate.
+    if game.spread is None:
+        return None  # If there's no spread, we can't calculate a percentage
+    spread = float(game.spread)
+    # Arbitrary formula to convert spread to percentage (for demonstration purposes)
+    percentage = max(0, min(100, 50 - spread * 2))
+    if game.projected_winner == game.home_team:
+        return 100 - percentage
+    return percentage
+
+def count_picks_for_team(team, games):
+    # Load all picks from the CSV files (assuming this is how you store picks)
+    all_picks = load_all_picks(games)
+    count = 0
+    for picks in all_picks.values():
+        for pick in picks.picks:
+            if pick.team and pick.team.abbreviation == team.abbreviation:
+                count += 1
+    return count
+
 @app.route('/all_games', methods=['GET'])
 def get_all_games():
     games = fetch_games()
@@ -83,7 +106,8 @@ def get_leaderboard():
     leaderboard = []
     for name, picks in all_picks.items():
         correct_picks = sum(1 for pick in picks.picks if pick.correct)
-        leaderboard.append({'name': name, 'correct_picks': correct_picks})
+        streak = picks.calculate_streak()  # Calculate the streak
+        leaderboard.append({'name': name, 'correct_picks': correct_picks, 'streak': streak})
     leaderboard.sort(key=lambda x: x['correct_picks'], reverse=True)
 
     return jsonify(leaderboard)
@@ -136,6 +160,32 @@ def get_picks(name):
         picks_json.append(pick_data)
 
     return jsonify(picks_json)
+
+@app.route('/upcoming_games', methods=['GET'])
+def get_upcoming_games():
+    games = fetch_games()
+    upcoming_games = [game for game in games if game.status == 'Scheduled'][:9]  # Select the next 7 games
+    # You'll need to add logic to calculate the number of picks for each team
+    # and the projected winner percentage based on the odds.
+    # This is just a placeholder for the structure.
+
+    for game in upcoming_games:
+        print(game.spread)
+
+    upcoming_games_info = [
+        {
+            'bowl_name': game.bowl_name,
+            'date': game.date.strftime('%Y-%m-%d %H:%M'),  # Format date as needed
+            'home_team': game.home_team.location,
+            'away_team': game.away_team.location,
+            'projected_winner': game.projected_winner.location if game.projected_winner else None,
+            'projected_winner_line': game.spread,  # Implement this function
+            'home_team_picks': count_picks_for_team(game.home_team, games),  # Implement this function
+            'away_team_picks': count_picks_for_team(game.away_team, games),  # Implement this function
+        }
+        for game in upcoming_games
+    ]
+    return jsonify(upcoming_games_info)
 
 if __name__ == '__main__':
     app.run(debug=True)

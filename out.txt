@@ -11,6 +11,7 @@ app = Flask(__name__)
 
 from flask import Flask, jsonify, render_template
 import os
+import math
 
 # Function to read picks from CSV files
 def read_picks_from_csv(file_path):
@@ -59,17 +60,14 @@ def game_to_json(game):
     }
 
 def calculate_winner_percentage(game):
-    # Assuming the spread is a float where a negative value favors the home team
-    # and a positive value favors the away team. The larger the absolute value,
-    # the stronger the favoritism. This is a simplified example and not accurate.
     if game.spread is None:
         return None  # If there's no spread, we can't calculate a percentage
     spread = float(game.spread)
-    # Arbitrary formula to convert spread to percentage (for demonstration purposes)
-    percentage = max(0, min(100, 50 - spread * 2))
+    sigma = 10  # Adjust this value based on the sportsbook's assessment
+    percentage = 1 / (1 + math.exp(-spread / sigma))
     if game.projected_winner == game.home_team:
-        return 100 - percentage
-    return percentage
+        return 100 - percentage * 100
+    return percentage * 100
 
 def count_picks_for_team(team, games):
     # Load all picks from the CSV files (assuming this is how you store picks)
@@ -108,7 +106,8 @@ def get_leaderboard():
     leaderboard = []
     for name, picks in all_picks.items():
         correct_picks = sum(1 for pick in picks.picks if pick.correct)
-        leaderboard.append({'name': name, 'correct_picks': correct_picks})
+        streak = picks.calculate_streak()  # Calculate the streak
+        leaderboard.append({'name': name, 'correct_picks': correct_picks, 'streak': streak})
     leaderboard.sort(key=lambda x: x['correct_picks'], reverse=True)
 
     return jsonify(leaderboard)
@@ -277,6 +276,7 @@ class Game:
         self.winner = None
         self.date_string = event.get('date', 'Unknown Date')
         self.date = datetime.datetime.strptime(self.date_string, "%Y-%m-%dT%H:%MZ")
+        self.picks = 0
 
         # Create Team objects for home and away teams
         for team_info in self.competitors:
@@ -304,7 +304,7 @@ class Game:
                     self.projected_winner = self.home_team
                 elif self.away_team.abbreviation == winner_abbreviation:
                     self.projected_winner = self.away_team
-                    self.spread = -self.spread  # Flip the spread if the away team is the projected winner
+                    #self.spread = -self.spread  # Flip the spread if the away team is the projected winner
 
         # Extract situation information if the game is not final
         if self.status != 'Final':
@@ -313,6 +313,9 @@ class Game:
             self.possession_text = situation.get('possessionText', '')
         else:
             self.winner = self.home_team if int(self.home_team.score) > int(self.away_team.score) else self.away_team
+
+    def set_picks(self, picks):
+        self.picks = picks
 
     def __str__(self):
         return f"**{self.status}** {self.bowl_name}: {self.home_team.location}({self.home_team.abbreviation}) {self.home_team.score} vs. {self.away_team.location}({self.away_team.abbreviation}) {self.away_team.score}"
@@ -384,7 +387,7 @@ class Picks:
         for pick in data:
             game = find_game_by_name(games, pick['game'])
             if game is None:
-                print(f"Unable to find game: {pick['game']}")
+                #print(f"Unable to find game: {pick['game']}")
                 continue
             team = None
             if game.bowl_name == 'CFP National Championship Pres. by AT&T':
@@ -399,10 +402,25 @@ class Picks:
     def analyze_picks(self, games):
         for pick in self.picks:
             if pick.team is None: 
-                pick.correct = False
                 continue
             if pick.game and pick.game.winner:
                 pick.correct = pick.game.winner.abbreviation == pick.team.abbreviation
+
+    def calculate_streak(self):
+        streak_type = None
+        streak_count = 0
+        for pick in reversed(self.picks):
+            if pick.correct is None:  # Skip games without a result
+                continue
+            if streak_type is None:
+                streak_type = 'W' if pick.correct else 'L'
+                streak_count = 1
+            elif ((pick.correct and streak_type == 'W') or
+                  (not pick.correct and streak_type == 'L')):
+                streak_count += 1
+            else:
+                break  # Streak ended
+        return f"{streak_type}{streak_count}" if streak_count > 0 else ""
 
 class Pick:
     def __init__(self, game, team):
@@ -428,7 +446,7 @@ class Pick:
             font-family: Arial, sans-serif;
         }
         .container {
-            width: 80%;
+            width: 90%;
             margin: auto;
             display: grid;
             grid-template-rows: auto auto 1fr;
@@ -487,6 +505,12 @@ class Pick:
         }
         #picksModalBody tr.incorrect {
             background-color: #f2dede; /* Light red for incorrect picks */
+        }
+        .green {
+                color: green;
+        }
+        .red {
+                color: red;
         }
         .game-card {
             display: grid;
@@ -561,6 +585,7 @@ class Pick:
                         <tr>
                             <th>Name</th>
                             <th>Correct Picks</th>
+                            <th>Streak</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -630,16 +655,24 @@ class Pick:
                 .then(response => response.json())
                 .then(leaderboard => {
                     const leaderboardTable = document.getElementById('leaderboard-table').getElementsByTagName('tbody')[0];
-                    leaderboardTable.innerHTML = leaderboard.map(entry => `
-                    <tr>
-                        <td><a href="#" onclick="loadPicks('${entry.name}')">${entry.name}</a></td>
-                        <td>${entry.correct_picks}</td>
-                    </tr>
-                `).join('');
+                    leaderboardTable.innerHTML = leaderboard.map(entry => {
+                        // Determine the class to apply based on the streak value
+                        let streakClass = '';
+                        if (entry.streak.includes('W')) {
+                            streakClass = 'green';
+                        } else if (entry.streak.includes('L')) {
+                            streakClass = 'red';
+                        }
+                        return `
+                            <tr>
+                                <td><a href="#" onclick="loadPicks('${entry.name}')">${entry.name}</a></td>
+                                <td>${entry.correct_picks}</td>
+                                <td class="${streakClass}">${entry.streak}</td> 
+                            </tr>
+                        `;
+                    }).join('');
                 })
                 .catch(error => console.error('Error fetching leaderboard:', error));
-
-                
         }
 
         // Function to load and display a user's picks
@@ -709,7 +742,7 @@ class Pick:
                             <div class="team-info">
                                 <b><div>${game.away_team}</div></b>
                                 <div>Picks: ${game.away_team_picks}</div>
-                                <div>${game.projected_winner === game.away_team ? `(${game.projected_winner_line})` : ''}</div>
+                                <div>${game.projected_winner === game.away_team ? `(-${game.projected_winner_line})` : ''}</div>
                             </div>
                             <div class="game-status">
                                 <div>${game.bowl_name}</div>

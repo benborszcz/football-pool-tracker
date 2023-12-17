@@ -8,7 +8,7 @@
             font-family: Arial, sans-serif;
         }
         .container {
-            width: 80%;
+            width: 90%;
             margin: auto;
             display: grid;
             grid-template-rows: auto auto 1fr;
@@ -148,6 +148,7 @@
                             <th>Name</th>
                             <th>Correct Picks</th>
                             <th>Streak</th>
+                            <th>Projected Total</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -230,6 +231,7 @@
                                 <td><a href="#" onclick="loadPicks('${entry.name}')">${entry.name}</a></td>
                                 <td>${entry.correct_picks}</td>
                                 <td class="${streakClass}">${entry.streak}</td> 
+                                <td>${entry.projected_total.toFixed(2)}</td>
                             </tr>
                         `;
                     }).join('');
@@ -304,7 +306,7 @@
                             <div class="team-info">
                                 <b><div>${game.away_team}</div></b>
                                 <div>Picks: ${game.away_team_picks}</div>
-                                <div>${game.projected_winner === game.away_team ? `(${game.projected_winner_line})` : ''}</div>
+                                <div>${game.projected_winner === game.away_team ? `(-${game.projected_winner_line})` : ''}</div>
                             </div>
                             <div class="game-status">
                                 <div>${game.bowl_name}</div>

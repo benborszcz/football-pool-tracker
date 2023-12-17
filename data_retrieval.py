@@ -30,6 +30,7 @@ class Game:
         self.winner = None
         self.date_string = event.get('date', 'Unknown Date')
         self.date = datetime.datetime.strptime(self.date_string, "%Y-%m-%dT%H:%MZ")
+        self.picks = 0
 
         # Create Team objects for home and away teams
         for team_info in self.competitors:
@@ -57,7 +58,7 @@ class Game:
                     self.projected_winner = self.home_team
                 elif self.away_team.abbreviation == winner_abbreviation:
                     self.projected_winner = self.away_team
-                    self.spread = -self.spread  # Flip the spread if the away team is the projected winner
+                    #self.spread = -self.spread  # Flip the spread if the away team is the projected winner
 
         # Extract situation information if the game is not final
         if self.status != 'Final':
@@ -66,6 +67,9 @@ class Game:
             self.possession_text = situation.get('possessionText', '')
         else:
             self.winner = self.home_team if int(self.home_team.score) > int(self.away_team.score) else self.away_team
+
+    def set_picks(self, picks):
+        self.picks = picks
 
     def __str__(self):
         return f"**{self.status}** {self.bowl_name}: {self.home_team.location}({self.home_team.abbreviation}) {self.home_team.score} vs. {self.away_team.location}({self.away_team.abbreviation}) {self.away_team.score}"

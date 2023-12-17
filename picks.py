@@ -22,7 +22,7 @@ class Picks:
         for pick in data:
             game = find_game_by_name(games, pick['game'])
             if game is None:
-                print(f"Unable to find game: {pick['game']}")
+                #print(f"Unable to find game: {pick['game']}")
                 continue
             team = None
             if game.bowl_name == 'CFP National Championship Pres. by AT&T':

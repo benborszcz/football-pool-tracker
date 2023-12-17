@@ -3,7 +3,7 @@ import csv
 import os
 from data_retrieval import fetch_games, Team, Game
 from picks import Picks  
-
+import math
 
 app = Flask(__name__)
 
@@ -57,17 +57,16 @@ def game_to_json(game):
     }
 
 def calculate_winner_percentage(game):
-    # Assuming the spread is a float where a negative value favors the home team
-    # and a positive value favors the away team. The larger the absolute value,
-    # the stronger the favoritism. This is a simplified example and not accurate.
     if game.spread is None:
         return None  # If there's no spread, we can't calculate a percentage
     spread = float(game.spread)
-    # Arbitrary formula to convert spread to percentage (for demonstration purposes)
-    percentage = max(0, min(100, 50 - spread * 2))
+    sigma = 10  # Adjust this value based on the sportsbook's assessment
+    if spread < 0: # Flip the spread if the away team is the projected winner
+        spread = -spread
+    percentage = 1 / (1 + math.exp(-spread / sigma))
     if game.projected_winner == game.home_team:
-        return 100 - percentage
-    return percentage
+        return percentage * 100
+    return (1 - percentage) * 100
 
 def count_picks_for_team(team, games):
     # Load all picks from the CSV files (assuming this is how you store picks)
@@ -106,8 +105,26 @@ def get_leaderboard():
     leaderboard = []
     for name, picks in all_picks.items():
         correct_picks = sum(1 for pick in picks.picks if pick.correct)
+        projected_points = 0
+        for pick in picks.picks:
+            if pick.correct is None and pick.team is not None:  # Game has not been played yet
+                game = pick.game
+                win_percentage = calculate_winner_percentage(game)
+                if win_percentage is not None:
+                    if pick.team == game.projected_winner:
+                        projected_points += win_percentage / 100
+                    elif pick.team is not None:
+                        projected_points += (1 - (win_percentage / 100))
+                    else:
+                        projected_points += 0
+        total_projected = correct_picks + projected_points
         streak = picks.calculate_streak()  # Calculate the streak
-        leaderboard.append({'name': name, 'correct_picks': correct_picks, 'streak': streak})
+        leaderboard.append({
+            'name': name,
+            'correct_picks': correct_picks,
+            'streak': streak,
+            'projected_total': total_projected
+        })
     leaderboard.sort(key=lambda x: x['correct_picks'], reverse=True)
 
     return jsonify(leaderboard)
@@ -169,8 +186,6 @@ def get_upcoming_games():
     # and the projected winner percentage based on the odds.
     # This is just a placeholder for the structure.
 
-    for game in upcoming_games:
-        print(game.spread)
 
     upcoming_games_info = [
         {

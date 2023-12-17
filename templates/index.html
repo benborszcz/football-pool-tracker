@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Football Bowl Pool</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+        .container {
+            width: 80%;
+            margin: auto;
+        }
+        .leaderboard {
+            margin-top: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        .correct {
+        background-color: #dff0d8; /* Light green to highlight correct picks */
+        }
+        .incorrect {
+            background-color: #f2dede; /* Light red to highlight incorrect picks */
+        }
+        /* Reset styles for rows within the modal */
+        #picksModalBody tr {
+            background-color: #fff; /* Set a default background color for all rows */
+        }
+        #picksModalBody tr.correct {
+            background-color: #dff0d8; /* Light green for correct picks */
+        }
+        #picksModalBody tr.incorrect {
+            background-color: #f2dede; /* Light red for incorrect picks */
+        }
+        .game-card {
+            display: grid;
+            grid-template-columns: 1fr 3fr 1fr;
+            gap: 10px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            margin-bottom: 10px;
+            background-color: #f9f9f9;
+        }
+        .team-info {
+            text-align: center;
+            font-size: 1em;
+        }
+        .team-score {
+            font-size: 1.5em;
+            font-weight: bold;
+        }
+        .game-status {
+            text-align: center;
+            font-weight: bold;
+        }
+        .modal {
+            display: none; /* Hidden by default */
+            position: fixed; /* Stay in place */
+            z-index: 1; /* Sit on top */
+            left: 0;
+            top: 0;
+            width: 100%; /* Full width */
+            height: 100%; /* Full height */
+            overflow: auto; /* Enable scroll if needed */
+            background-color: rgb(0,0,0); /* Fallback color */
+            background-color: rgba(0,0,0,0.4); /* Black w/ opacity */
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: 15% auto; /* 15% from the top and centered */
+            padding: 20px;
+            border: 1px solid #888;
+            width: 80%; /* Could be more or less, depending on screen size */
+        }
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+        }
+        .close:hover,
+        .close:focus {
+            color: black;
+            text-decoration: none;
+            cursor: pointer;
+        }
+        .highlight {
+            background-color: #dff0d8; /* Light green to highlight wins */
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Football Bowl Pool</h1>
+        <h2>Active Games</h2>
+        <div id="games">
+            <!-- Games will be loaded here -->
+        </div>
+        <div class="leaderboard">
+            <h2>Leaderboard</h2>
+            <table id="leaderboard-table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Correct Picks</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- Leaderboard will be loaded here -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <div id="picksModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2 id="picksModalTitle">Picks for User</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Game</th>
+                        <th>Matchup</th>
+                        <th>Pick</th>
+                    </tr>
+                </thead>
+                <tbody id="picksModalBody">
+                    <!-- User's picks will be loaded here -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+
+    <script>
+        // Fetch and display in-progress games
+        function loadGames() {
+            fetch('/games')
+                .then(response => response.json())
+                .then(games => {
+                    const gamesContainer = document.getElementById('games');
+                    gamesContainer.innerHTML = games.map(game => `
+                        <div class="game-card">
+                            <div class="team-info">
+                                <div>${game.away_team.display_name}</div>
+                                <div class="team-score">${game.away_team.score}</div>
+                            </div>
+                            <div class="game-status">
+                                <div>${game.bowl_name}</div>
+                                <div>${game.display_clock} ${game.period ? 'Q' + game.period : ''}</div>
+                                <div>${game.down_distance_text}</div>
+                                <div>${game.possession_text}</div>
+                            </div>
+                            <div class="team-info">
+                                <div>${game.home_team.display_name}</div>
+                                <div class="team-score">${game.home_team.score}</div>
+                            </div>
+                        </div>
+                    `).join('');
+                })
+                .catch(error => console.error('Error fetching games:', error));
+        }
+
+        // Fetch and display leaderboard
+        function loadLeaderboard() {
+            fetch('/leaderboard')
+                .then(response => response.json())
+                .then(leaderboard => {
+                    const leaderboardTable = document.getElementById('leaderboard-table').getElementsByTagName('tbody')[0];
+                    leaderboardTable.innerHTML = leaderboard.map(entry => `
+                    <tr>
+                        <td><a href="#" onclick="loadPicks('${entry.name}')">${entry.name}</a></td>
+                        <td>${entry.correct_picks}</td>
+                    </tr>
+                `).join('');
+                })
+                .catch(error => console.error('Error fetching leaderboard:', error));
+
+                
+        }
+
+        // Function to load and display a user's picks
+        function loadPicks(name) {
+            fetch(`/picks/${encodeURIComponent(name)}`)
+                .then(response => response.json())
+                .then(picks => {
+                    const picksModalBody = document.getElementById('picksModalBody');
+                    picksModalBody.innerHTML = picks.map(pick => {
+                        // Determine the class to apply based on the pick outcome
+                        let rowClass = '';
+                        if (pick.correct === true) {
+                            rowClass = 'correct';
+                        } else if (pick.correct === false) {
+                            rowClass = 'incorrect';
+                        }
+                        // Generate the table row with the appropriate class
+                        return `
+                            <tr class="${rowClass}">
+                                <td>${pick.game.bowl_name}</td>
+                                <td>${pick.game.home_team.location} vs ${pick.game.away_team.location}</td>
+                                <td>${pick.team.location}</td>
+                            </tr>
+                        `;
+                    }).join('');
+                    document.getElementById('picksModalTitle').innerText = `Picks for ${name}`;
+                    showModal();
+                })
+                .catch(error => console.error('Error fetching picks:', error));
+        }
+
+        // Show the modal
+        function showModal() {
+            const modal = document.getElementById('picksModal');
+            modal.style.display = 'block';
+        }
+
+        // Hide the modal
+        function hideModal() {
+            const modal = document.getElementById('picksModal');
+            modal.style.display = 'none';
+        }
+
+        // Get the <span> element that closes the modal
+        const span = document.getElementsByClassName('close')[0];
+
+        // When the user clicks on <span> (x), close the modal
+        span.onclick = function() {
+            hideModal();
+        }
+
+        // When the user clicks anywhere outside of the modal, close it
+        window.onclick = function(event) {
+            const modal = document.getElementById('picksModal');
+            if (event.target == modal) {
+                hideModal();
+            }
+        }
+        // Load games and leaderboard on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            loadGames();
+            loadLeaderboard();
+        });
+    </script>
+</body>
+</html>

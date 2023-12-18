@@ -2,7 +2,7 @@ import os
 import pandas as pd
 
 # Load the provided Excel file
-file_path = 'picks/2023 Bowl Picks Start 2.xlsx'
+file_path = 'picks/2023 Bowl Picks Start 3.xlsx'
 df = pd.read_excel(file_path)
 
 # Display the first few rows of the dataframe to understand its structure

@@ -148,7 +148,7 @@
                             <th>Name</th>
                             <th>Correct Picks</th>
                             <th>Streak</th>
-                            <th>Projected Total</th>
+                            <th>1st Place Probability</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -231,9 +231,11 @@
                                 <td><a href="#" onclick="loadPicks('${entry.name}')">${entry.name}</a></td>
                                 <td>${entry.correct_picks}</td>
                                 <td class="${streakClass}">${entry.streak}</td> 
-                                <td>${entry.projected_total.toFixed(2)}</td>
+                                <td>${entry.percent_chance.toFixed(2)}%</td> 
+                                
                             </tr>
                         `;
+                        //<td>${entry.projected_total.toFixed(2)}</td>
                     }).join('');
                 })
                 .catch(error => console.error('Error fetching leaderboard:', error));

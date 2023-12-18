@@ -4,6 +4,8 @@ import os
 from data_retrieval import fetch_games, Team, Game
 from picks import Picks  
 import math
+import numpy as np
+import random
 
 app = Flask(__name__)
 
@@ -61,12 +63,15 @@ def calculate_winner_percentage(game):
         return None  # If there's no spread, we can't calculate a percentage
     spread = float(game.spread)
     sigma = 10  # Adjust this value based on the sportsbook's assessment
-    if spread < 0: # Flip the spread if the away team is the projected winner
-        spread = -spread
+    spread = -spread
+    if game.projected_winner is None: return None
     percentage = 1 / (1 + math.exp(-spread / sigma))
+    ret = (1 - percentage) * 100
     if game.projected_winner == game.home_team:
-        return percentage * 100
-    return (1 - percentage) * 100
+        ret = percentage * 100
+    #print(f"Game: {game.bowl_name},Spread: {spread}, {game.projected_winner.abbreviation} Percentage: {ret}")
+    return ret
+    
 
 def count_picks_for_team(team, games):
     # Load all picks from the CSV files (assuming this is how you store picks)
@@ -103,6 +108,7 @@ def get_leaderboard():
 
     # Calculate scores and sort leaderboard
     leaderboard = []
+    projected_totals = []  # List to store projected_totals
     for name, picks in all_picks.items():
         correct_picks = sum(1 for pick in picks.picks if pick.correct)
         projected_points = 0
@@ -118,6 +124,7 @@ def get_leaderboard():
                     else:
                         projected_points += 0
         total_projected = correct_picks + projected_points
+        projected_totals.append(total_projected)  # Add projected_total to the list
         streak = picks.calculate_streak()  # Calculate the streak
         leaderboard.append({
             'name': name,
@@ -126,6 +133,45 @@ def get_leaderboard():
             'projected_total': total_projected
         })
     leaderboard.sort(key=lambda x: x['correct_picks'], reverse=True)
+
+    mean = np.mean(projected_totals)  # Calculate the mean
+    stdev = np.std(projected_totals)  # Calculate the standard deviation
+
+    print(f"Mean: {mean}, Standard Deviation: {stdev}")  # Debug print
+    
+    def calculate_percent_chance(total, mean, stdev):
+        z_score = (total - mean) / stdev
+        percent_chance = (1 - math.erf(-z_score / math.sqrt(2))) * 100
+        return percent_chance
+
+    def convert_to_odds(probability):
+        probability = probability / 100
+        if probability == 0:
+            return "N/A"
+        if probability >= 0.5:
+            # Favorite (probability >= 50%)
+            odds = -100 * (probability / (1 - probability))
+        else:
+            # Underdog (probability < 50%)
+            odds = 100 * ((1 - probability) / probability)
+
+        return round(odds)
+
+    for entry in leaderboard:
+        if entry['name'] == 'Ben':
+            entry['percent_chance'] = calculate_percent_chance(32, mean, stdev)
+        else:
+            entry['percent_chance'] = calculate_percent_chance(entry['projected_total'], mean, stdev)
+
+    # Normalize percent chances to ensure they add up to 100%
+    total_percent_chance = sum(entry['percent_chance'] for entry in leaderboard)
+    for entry in leaderboard:
+        entry['percent_chance'] /= total_percent_chance
+        entry['percent_chance'] *= 100
+
+    for entry in leaderboard:
+        entry['odds_to_win'] = convert_to_odds(entry['percent_chance'])
+        print(f"{entry['name']}: {entry['projected_total']}, {entry['percent_chance']}, {entry['odds_to_win']}")
 
     return jsonify(leaderboard)
 

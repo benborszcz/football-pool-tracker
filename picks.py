@@ -1,9 +1,16 @@
+import numpy as np
+
 class Picks:
     def __init__(self, name, data, games):
         self.name = name
         self.picks: list[Pick] = []
         self.parse_picks(data, games)
-
+        self.pick_array = self.create_picks_array()
+        
+    def calculate_correct_picks(self):
+        # Calculate the number of correct picks
+        return sum(1 for pick in self.picks if pick.correct)
+    
     def parse_picks(self, data, games):
         def find_game_by_name(games, name):
             for game in games:
@@ -33,14 +40,13 @@ class Picks:
                 team = find_team_by_abbreviation(game, pick['team'])
             self.picks.append(Pick(game, team))
     
-    
     def analyze_picks(self, games):
         for pick in self.picks:
             if pick.team is None: 
                 continue
             if pick.game and pick.game.winner:
                 pick.correct = pick.game.winner.abbreviation == pick.team.abbreviation
-
+    
     def calculate_streak(self):
         streak_type = None
         streak_count = 0
@@ -56,6 +62,10 @@ class Picks:
             else:
                 break  # Streak ended
         return f"{streak_type}{streak_count}" if streak_count > 0 else ""
+    
+    def create_picks_array(self):
+        picks_array = np.array([1 if pick.team == pick.game.projected_winner else 0 for pick in self.picks])
+        return picks_array
 
 class Pick:
     def __init__(self, game, team):

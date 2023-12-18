@@ -50,7 +50,8 @@ class Game:
 
             # Extract the projected winner from the details field
             details = odds_info.get('details', '')
-            match = re.search(r'([A-Z]+) -?\d+(\.\d+)?', details)
+            match = re.search(r'([A-Z&]+) -?\d+(\.\d+)?', details)
+            
             if match:
                 winner_abbreviation = match.group(1)
                 # Determine the projected winner based on the abbreviation

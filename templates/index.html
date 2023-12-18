@@ -148,7 +148,8 @@
                             <th>Name</th>
                             <th>Correct Picks</th>
                             <th>Streak</th>
-                            <th>1st Place Probability</th>
+                            <th>1st Place %</th>
+                            <th>1st Place Odds</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -164,6 +165,7 @@
             </div>
         </div>
     </div>
+    
     <div id="picksModal" class="modal">
         <div class="modal-content">
             <span class="close">&times;</span>
@@ -231,8 +233,8 @@
                                 <td><a href="#" onclick="loadPicks('${entry.name}')">${entry.name}</a></td>
                                 <td>${entry.correct_picks}</td>
                                 <td class="${streakClass}">${entry.streak}</td> 
-                                <td>${entry.percent_chance.toFixed(2)}%</td> 
-                                
+                                <td>${entry.win_probability.toFixed(2)}%</td> 
+                                <td>${entry.odds_to_win >= 0 ? '+' : ''}${entry.odds_to_win}</td>
                             </tr>
                         `;
                         //<td>${entry.projected_total.toFixed(2)}</td>

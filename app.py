@@ -54,14 +54,26 @@ def game_to_json(game):
         },
         'down_distance_text': game.down_distance_text,
         'possession_text': game.possession_text,
+        'possession': game.possession.abbreviation if game.possession else None,
         'winner': game.winner.abbreviation if game.winner else None,
+        'probabilities': {
+            'homeWinPercentage': game.probabilities['homeWinPercentage'] if game.probabilities else None,
+            'awayWinPercentage': game.probabilities['awayWinPercentage'] if game.probabilities else None,
+        }
     }
 
 def calculate_winner_percentage(game):
     if game.spread is None:
+        if game.probabilities is not None:
+            probs = 0
+            if game.probabilities['homeWinPercentage'] > game.probabilities['awayWinPercentage']:
+                probs = game.probabilities['homeWinPercentage']
+            else:
+                probs = game.probabilities['awayWinPercentage']
+            return probs * 100
         return None  # If there's no spread, we can't calculate a percentage
     spread = float(game.spread)
-    sigma = 10  # Adjust this value based on the sportsbook's assessment
+    sigma = 15  # Adjust this value based on the sportsbook's assessment
     spread = -spread
     if game.projected_winner is None: return None
     percentage = 1 / (1 + math.exp(-spread / sigma))
@@ -69,6 +81,7 @@ def calculate_winner_percentage(game):
     if game.projected_winner == game.home_team:
         ret = percentage * 100
     #print(f"Game: {game.bowl_name},Spread: {spread}, {game.projected_winner.abbreviation} Percentage: {ret}")
+
     return ret
     
 
@@ -83,37 +96,11 @@ def count_picks_for_team(team, games):
     return count
 
 from concurrent.futures import ThreadPoolExecutor
-import numpy as np
 
-
-# Trying to do it quicker through array comparison
-def simulate_win_probabilities2(all_picks, games_dict, num_simulations=1000):
-    names = list(all_picks.keys())
-    champion_counts = {name: 0 for name in names} # Dictionary to track total wins for each name
-    
-    win_percentages = np.array([calculate_winner_percentage(game) if calculate_winner_percentage(game) is not None else 0.0 for game in games_dict.values()])
-
-    for i in range(num_simulations):
-        win_counts = {name: 0 for name in names} 
-        random_array = np.random.rand(len(win_percentages))*100
-        results = np.where(np.logical_and(win_percentages > 0, random_array < np.array(win_percentages)), 1, 0)
-        for name in names:
-            outcome = np.add(all_picks[name].pick_array, results)
-            zeros_count = np.count_nonzero(outcome == 0)
-            twos_count = np.count_nonzero(outcome == 2)
-            win_counts[name] += zeros_count + twos_count
-        
-        max_wins = max(win_counts.values())
-        for name, wins in win_counts.items():
-            if wins == max_wins:
-                champion_counts[name] += 1
-
-
-    print("Champion counts:", champion_counts)
 
 import numpy as np
 
-def simulate_win_probabilities(all_picks, games_dict, num_simulations=2023):
+def simulate_win_probabilities(all_picks, games_dict, num_simulations=2000):
 
     random.seed(42)
     np.random.seed(42)
@@ -122,11 +109,11 @@ def simulate_win_probabilities(all_picks, games_dict, num_simulations=2023):
     champion_counts = {name: 0 for name in names} # Dictionary to track total wins for each name
     
     win_percentages = np.array([calculate_winner_percentage(game) if calculate_winner_percentage(game) is not None else -1 for game in games_dict.values()])
-
+    
     # Pre-calculate the pick arrays and the number of correct picks
     pick_arrays = {name: np.array(all_picks[name].pick_array) for name in names}
     correct_picks = {name: all_picks[name].calculate_correct_picks() for name in names}
-
+    max_wins = 0
     for i in range(num_simulations):
         random_array = np.random.rand(len(win_percentages))*100
         valid_indices = win_percentages != -1
@@ -137,15 +124,64 @@ def simulate_win_probabilities(all_picks, games_dict, num_simulations=2023):
         results = np.where(np.logical_and(win_percentages > 0, random_array < np.array(win_percentages)), 1, 0)
 
         if i == 1:
-            print(win_percentages)
-            print(random_array)
-            print(results)
+            #print(win_percentages)
+            #print(random_array)
+            #print(results)
+            pass
         # Use numpy's broadcasting feature to calculate the outcomes and count the zeros and twos for all names at once
         outcomes = np.array([pick_arrays[name] + results for name in names])
         win_counts = np.count_nonzero(outcomes == 0, axis=1) + np.count_nonzero(outcomes == 2, axis=1)
 
         # Add the number of correct picks to the win counts
         win_counts += np.array([correct_picks[name] for name in names])
+
+        # Function to simulate the championship game
+        def simulate_championship_game(all_picks, games_dict, results):
+            # Get the winners of the last two games
+            last_two_games = list(games_dict.values())[-3:-1]
+            winner1 = results[-2]
+            winner2 = results[-1]
+            
+            if results[-2] == 1:
+                winner1 = last_two_games[0].projected_winner
+            elif results[-2] == 0:
+                winner1 = last_two_games[0].projected_loser
+            
+            if results[-1] == 1:
+                winner2 = last_two_games[1].projected_winner
+            elif results[-1] == 0:
+                winner2 = last_two_games[1].projected_loser
+
+            odds = 0
+            if winner1.abbreviation == "ALA" and winner2.abbreviation == "TEX":
+                odds = 0.53
+            elif winner1.abbreviation == "ALA" and winner2.abbreviation == "WASH":
+                odds = 0.70
+            elif winner1.abbreviation == "MICH" and winner2.abbreviation == "TEX":
+                odds = 0.58
+            elif winner1.abbreviation == "MICH" and winner2.abbreviation == "WASH":
+                odds = 0.72
+
+            winner = winner2
+            if random.random() < odds:
+                winner = winner1
+
+            win_counts = {name: 0 for name in names}
+            for name, picks in all_picks.items():
+                for pick in picks.picks:
+                    if pick.game.bowl_name == "CFP National Championship Pres. by AT&T":
+                        if pick.game.winner == winner:
+                            win_counts[name] += 1
+
+            return win_counts
+
+        # Simulate the championship game
+        championship_win_counts = simulate_championship_game(all_picks, games_dict, results)
+
+        # Add the championship win counts to the total win counts
+        for name in names:
+            win_counts[names.index(name)] += championship_win_counts[name]
+            
 
         # Use numpy's argmax function to find the index of the maximum win count
         max_wins_indices = np.argwhere(win_counts == np.amax(win_counts)).flatten()
@@ -156,6 +192,10 @@ def simulate_win_probabilities(all_picks, games_dict, num_simulations=2023):
         else:
             champion_index = max_wins_indices[0]
 
+        if max_wins < win_counts[champion_index]:
+            max_wins = win_counts[champion_index]
+            #print(f"New max wins: {max_wins}")
+
         champion_counts[names[champion_index]] += 1
 
     def calculate_win_probability(champion_counts):
@@ -165,45 +205,8 @@ def simulate_win_probabilities(all_picks, games_dict, num_simulations=2023):
 
     win_probabilities = calculate_win_probability(champion_counts)
     print("Win probabilities:", win_probabilities)
-
     print("Champion counts:", champion_counts)
 
-    return win_probabilities
-
-def simulate_win_probabilities4(all_picks, games_dict, num_simulations=1000):
-    #simulate_win_probabilities3(all_picks, games_dict)
-    win_counts = np.zeros(len(all_picks), dtype=int)
-    names = list(all_picks.keys())
-    win_percentages = np.array([calculate_winner_percentage(game) for game in games_dict.values()])
-
-    def simulate_once(_):  # Accept a dummy argument
-        simulated_standings = np.array([picks.calculate_correct_picks() for picks in all_picks.values()])
-        for i, game in enumerate(games_dict.values()):
-            if game.winner is None:  # If the game hasn't been decided yet
-                if win_percentages[i] is not None:
-                    # Simulate the game outcome based on the win percentage
-                    if np.random.rand() < (win_percentages[i] / 100):
-                        winner = game.projected_winner
-                    else:
-                        winner = game.home_team if game.home_team != game.projected_winner else game.away_team
-                    
-                    # Update standings based on the simulated outcome
-                    for j, picks in enumerate(all_picks.values()):
-                        for pick in picks.picks:
-                            if pick.game == game and pick.team == winner:
-                                simulated_standings[j] += 1
-        
-        # Determine the winner for this simulation
-        simulated_winner_idx = np.argmax(simulated_standings)
-        return simulated_winner_idx
-
-    # Run simulations in parallel
-    with ThreadPoolExecutor() as executor:
-        for winner_idx in executor.map(simulate_once, range(num_simulations)):
-            win_counts[winner_idx] += 1
-
-    # Calculate win probabilities based on the simulation results
-    win_probabilities = {name: win_counts[i] / num_simulations for i, name in enumerate(names)}
     return win_probabilities
 
 @app.route('/all_games', methods=['GET'])
@@ -215,6 +218,7 @@ def get_all_games():
 @app.route('/games', methods=['GET'])
 def get_games():
     games = fetch_games()
+    print
     in_progress_games = [game_to_json(game) for game in games if game.status == 'In Progress' or game.status == 'Halftime' or game.status == 'End of Period']
     return jsonify(in_progress_games)
 
@@ -262,7 +266,7 @@ def get_leaderboard():
     mean = np.mean(projected_totals)  # Calculate the mean
     stdev = np.std(projected_totals)  # Calculate the standard deviation
 
-    print(f"Mean: {mean}, Standard Deviation: {stdev}")  # Debug print
+    #print(f"Mean: {mean}, Standard Deviation: {stdev}")  # Debug print
     
     def convert_to_odds(probability):
         probability = probability / 100

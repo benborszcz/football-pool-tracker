@@ -16,7 +16,7 @@
         }
         .content-row {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: 1.5fr 1fr;
             gap: 20px;
         }
         .leaderboard, .upcoming-games {
@@ -76,7 +76,7 @@
         }
         .game-card {
             display: grid;
-            grid-template-columns: 1fr 3fr 1fr;
+            grid-template-columns: 2fr 1fr 2fr 1fr 2fr;
             gap: 10px;
             padding: 10px;
             border: 1px solid #ddd;
@@ -148,8 +148,8 @@
                             <th>Name</th>
                             <th>Correct Picks</th>
                             <th>Streak</th>
-                            <th>1st Place %</th>
-                            <th>1st Place Odds</th>
+                            <th>Chance to Win Pool</th>
+                            <th>Odds to Win Pool</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -199,10 +199,18 @@
                                 <div>${game.away_team.display_name}</div>
                                 <div class="team-score">${game.away_team.score}</div>
                             </div>
+                            <div style="text-align: center;">
+                                <div>Win Probability</div>
+                                <div class="game-status">${(game.probabilities.awayWinPercentage*100).toFixed(2)}%</div>
+                            </div>
                             <div class="game-status">
                                 <div>${game.bowl_name}</div>
                                 <div>${game.display_clock} ${game.period ? 'Q' + game.period : ''}</div>
-                                <div>${game.down_distance_text}</div>
+                                <div>${game.possession} Ball, ${game.down_distance_text}</div>
+                            </div>
+                            <div style="text-align: center;">
+                                <div>Win Probability</div>
+                                <div class="game-status">${(game.probabilities.homeWinPercentage*100).toFixed(2)}%</div>
                             </div>
                             <div class="team-info">
                                 <div>${game.home_team.display_name}</div>

@@ -8,7 +8,6 @@ from picks import Picks
 import math
 import numpy as np
 import random
-
 app = Flask(__name__)
 
 from flask import Flask, jsonify, render_template
@@ -57,14 +56,26 @@ def game_to_json(game):
         },
         'down_distance_text': game.down_distance_text,
         'possession_text': game.possession_text,
+        'possession': game.possession.abbreviation if game.possession else None,
         'winner': game.winner.abbreviation if game.winner else None,
+        'probabilities': {
+            'homeWinPercentage': game.probabilities['homeWinPercentage'] if game.probabilities else None,
+            'awayWinPercentage': game.probabilities['awayWinPercentage'] if game.probabilities else None,
+        }
     }
 
 def calculate_winner_percentage(game):
     if game.spread is None:
+        if game.probabilities is not None:
+            probs = 0
+            if game.probabilities['homeWinPercentage'] > game.probabilities['awayWinPercentage']:
+                probs = game.probabilities['homeWinPercentage']
+            else:
+                probs = game.probabilities['awayWinPercentage']
+            return probs * 100
         return None  # If there's no spread, we can't calculate a percentage
     spread = float(game.spread)
-    sigma = 10  # Adjust this value based on the sportsbook's assessment
+    sigma = 15  # Adjust this value based on the sportsbook's assessment
     spread = -spread
     if game.projected_winner is None: return None
     percentage = 1 / (1 + math.exp(-spread / sigma))
@@ -72,6 +83,7 @@ def calculate_winner_percentage(game):
     if game.projected_winner == game.home_team:
         ret = percentage * 100
     #print(f"Game: {game.bowl_name},Spread: {spread}, {game.projected_winner.abbreviation} Percentage: {ret}")
+
     return ret
     
 
@@ -85,35 +97,118 @@ def count_picks_for_team(team, games):
                 count += 1
     return count
 
-# Function to perform simulations and calculate win probabilities
+from concurrent.futures import ThreadPoolExecutor
+
+
+import numpy as np
+
 def simulate_win_probabilities(all_picks, games_dict, num_simulations=2000):
-    win_counts = {name: 0 for name in all_picks.keys()}
+
+    random.seed(42)
+    np.random.seed(42)
+
+    names = list(all_picks.keys())
+    champion_counts = {name: 0 for name in names} # Dictionary to track total wins for each name
     
-    for _ in range(num_simulations):
-        simulated_standings = {name: picks.calculate_correct_picks()  for name, picks in all_picks.items()}
-        
-        for game in games_dict.values():
-            if game.winner is None:  # If the game hasn't been decided yet
-                win_percentage = calculate_winner_percentage(game)
-                if win_percentage is not None:
-                    # Simulate the game outcome based on the win percentage
-                    if random.random() < (win_percentage / 100):
-                        winner = game.projected_winner
-                    else:
-                        winner = game.home_team if game.home_team != game.projected_winner else game.away_team
-                    
-                    # Update standings based on the simulated outcome
-                    for name, picks in all_picks.items():
-                        for pick in picks.picks:
-                            if pick.game == game and pick.team == winner:
-                                simulated_standings[name] += 1
-        
-        # Determine the winner for this simulation
-        simulated_winner = max(simulated_standings, key=simulated_standings.get)
-        win_counts[simulated_winner] += 1
+    win_percentages = np.array([calculate_winner_percentage(game) if calculate_winner_percentage(game) is not None else -1 for game in games_dict.values()])
     
-    # Calculate win probabilities based on the simulation results
-    win_probabilities = {name: count / num_simulations for name, count in win_counts.items()}
+    # Pre-calculate the pick arrays and the number of correct picks
+    pick_arrays = {name: np.array(all_picks[name].pick_array) for name in names}
+    correct_picks = {name: all_picks[name].calculate_correct_picks() for name in names}
+    max_wins = 0
+    for i in range(num_simulations):
+        random_array = np.random.rand(len(win_percentages))*100
+        valid_indices = win_percentages != -1
+        win_percentages = win_percentages[valid_indices]
+        random_array = random_array[valid_indices]
+        pick_arrays = {name: pick_arrays[name][valid_indices] for name in names}
+
+        results = np.where(np.logical_and(win_percentages > 0, random_array < np.array(win_percentages)), 1, 0)
+
+        if i == 1:
+            #print(win_percentages)
+            #print(random_array)
+            #print(results)
+            pass
+        # Use numpy's broadcasting feature to calculate the outcomes and count the zeros and twos for all names at once
+        outcomes = np.array([pick_arrays[name] + results for name in names])
+        win_counts = np.count_nonzero(outcomes == 0, axis=1) + np.count_nonzero(outcomes == 2, axis=1)
+
+        # Add the number of correct picks to the win counts
+        win_counts += np.array([correct_picks[name] for name in names])
+
+        # Function to simulate the championship game
+        def simulate_championship_game(all_picks, games_dict, results):
+            # Get the winners of the last two games
+            last_two_games = list(games_dict.values())[-3:-1]
+            winner1 = results[-2]
+            winner2 = results[-1]
+            
+            if results[-2] == 1:
+                winner1 = last_two_games[0].projected_winner
+            elif results[-2] == 0:
+                winner1 = last_two_games[0].projected_loser
+            
+            if results[-1] == 1:
+                winner2 = last_two_games[1].projected_winner
+            elif results[-1] == 0:
+                winner2 = last_two_games[1].projected_loser
+
+            odds = 0
+            if winner1.abbreviation == "ALA" and winner2.abbreviation == "TEX":
+                odds = 0.53
+            elif winner1.abbreviation == "ALA" and winner2.abbreviation == "WASH":
+                odds = 0.70
+            elif winner1.abbreviation == "MICH" and winner2.abbreviation == "TEX":
+                odds = 0.58
+            elif winner1.abbreviation == "MICH" and winner2.abbreviation == "WASH":
+                odds = 0.72
+
+            winner = winner2
+            if random.random() < odds:
+                winner = winner1
+
+            win_counts = {name: 0 for name in names}
+            for name, picks in all_picks.items():
+                for pick in picks.picks:
+                    if pick.game.bowl_name == "CFP National Championship Pres. by AT&T":
+                        if pick.game.winner == winner:
+                            win_counts[name] += 1
+
+            return win_counts
+
+        # Simulate the championship game
+        championship_win_counts = simulate_championship_game(all_picks, games_dict, results)
+
+        # Add the championship win counts to the total win counts
+        for name in names:
+            win_counts[names.index(name)] += championship_win_counts[name]
+            
+
+        # Use numpy's argmax function to find the index of the maximum win count
+        max_wins_indices = np.argwhere(win_counts == np.amax(win_counts)).flatten()
+
+        # If multiple names have the maximum win count, randomly select one as the champion
+        if len(max_wins_indices) > 1:
+            champion_index = random.choice(max_wins_indices)
+        else:
+            champion_index = max_wins_indices[0]
+
+        if max_wins < win_counts[champion_index]:
+            max_wins = win_counts[champion_index]
+            #print(f"New max wins: {max_wins}")
+
+        champion_counts[names[champion_index]] += 1
+
+    def calculate_win_probability(champion_counts):
+        total_counts = sum(champion_counts.values())
+        win_probabilities = {name: count / total_counts for name, count in champion_counts.items()}
+        return win_probabilities
+
+    win_probabilities = calculate_win_probability(champion_counts)
+    print("Win probabilities:", win_probabilities)
+    print("Champion counts:", champion_counts)
+
     return win_probabilities
 
 @app.route('/all_games', methods=['GET'])
@@ -125,6 +220,7 @@ def get_all_games():
 @app.route('/games', methods=['GET'])
 def get_games():
     games = fetch_games()
+    print
     in_progress_games = [game_to_json(game) for game in games if game.status == 'In Progress' or game.status == 'Halftime' or game.status == 'End of Period']
     return jsonify(in_progress_games)
 
@@ -172,7 +268,7 @@ def get_leaderboard():
     mean = np.mean(projected_totals)  # Calculate the mean
     stdev = np.std(projected_totals)  # Calculate the standard deviation
 
-    print(f"Mean: {mean}, Standard Deviation: {stdev}")  # Debug print
+    #print(f"Mean: {mean}, Standard Deviation: {stdev}")  # Debug print
     
     def convert_to_odds(probability):
         probability = probability / 100
@@ -191,7 +287,7 @@ def get_leaderboard():
     for entry in leaderboard:
         entry['win_probability'] = win_probabilities[entry['name']] * 100  # Convert to percentage
         entry['odds_to_win'] = convert_to_odds(entry['win_probability'])
-        print(f"{entry['name']}: {entry['projected_total']}, {entry['win_probability']}, {entry['odds_to_win']}")
+        #print(f"{entry['name']}: {entry['projected_total']}, {entry['win_probability']}, {entry['odds_to_win']}")
 
     return jsonify(leaderboard)
 
@@ -338,6 +434,7 @@ class Team:
         self.display_name = info.get('displayName', 'Unknown Display Name')
         self.short_display_name = info.get('shortDisplayName', 'Unknown Short Display Name')
         self.score = info.get('score', '0')  # Score is added here for convenience
+        self.id = info.get('id', 'Unknown ID')
 
 # Define the Game class
 class Game:
@@ -348,16 +445,19 @@ class Game:
         self.period = event.get('status', {}).get('period', 0)
         self.down_distance_text = ''
         self.possession_text = ''
+        self.possession = None
         self.competitors = event.get('competitions', [{}])[0].get('competitors', [])
         self.home_team = None
         self.away_team = None
         self.projected_winner = None
+        self.projected_loser = None
         self.spread: str = None
         self.over_under = None
         self.winner = None
         self.date_string = event.get('date', 'Unknown Date')
         self.date = datetime.datetime.strptime(self.date_string, "%Y-%m-%dT%H:%MZ")
         self.picks = 0
+        self.probabilities = None
 
         # Create Team objects for home and away teams
         for team_info in self.competitors:
@@ -377,21 +477,62 @@ class Game:
 
             # Extract the projected winner from the details field
             details = odds_info.get('details', '')
-            match = re.search(r'([A-Z]+) -?\d+(\.\d+)?', details)
+            match = re.search(r'([A-Z&]+) -?\d+(\.\d+)?', details)
+            self.probabilities = event.get('competitions', [{}])[0].get('situation', {}).get('lastPlay', {}).get('probability', None)
+            
             if match:
                 winner_abbreviation = match.group(1)
                 # Determine the projected winner based on the abbreviation
                 if self.home_team.abbreviation == winner_abbreviation:
                     self.projected_winner = self.home_team
+                    self.projected_loser = self.away_team
                 elif self.away_team.abbreviation == winner_abbreviation:
                     self.projected_winner = self.away_team
+                    self.projected_loser = self.home_team
                     #self.spread = -self.spread  # Flip the spread if the away team is the projected winner
+            elif self.probabilities:
+                if self.probabilities['homeWinPercentage'] > self.probabilities['awayWinPercentage']:
+                    self.projected_winner = self.home_team
+                    self.projected_loser = self.away_team
+                else:
+                    self.projected_winner = self.away_team
+                    self.projected_loser = self.home_team
+            elif self.status == "In Progress":
+                home_score = int(self.home_team.score) ** (1.7+self.period/10)
+                away_score = int(self.away_team.score) ** (1.7+self.period/10)
+
+                total_score = home_score + away_score
+
+                if total_score == 0:
+                    self.probabilities = {
+                        'homeWinPercentage': 0.51,
+                        'awayWinPercentage': 0.49
+                    }
+                else:
+                    home_win_percentage = (home_score / total_score)
+                    away_win_percentage = (away_score / total_score)
+
+                    self.probabilities = {
+                        'homeWinPercentage': home_win_percentage,
+                        'awayWinPercentage': away_win_percentage
+                    }
+                if self.probabilities['homeWinPercentage'] > self.probabilities['awayWinPercentage']:
+                    self.projected_winner = self.home_team
+                    self.projected_loser = self.away_team
+                else:
+                    self.projected_winner = self.away_team
+                    self.projected_loser = self.home_team
+            
 
         # Extract situation information if the game is not final
         if self.status != 'Final':
             situation = event.get('competitions', [{}])[0].get('situation', {})
             self.down_distance_text = situation.get('downDistanceText', '')
-            self.possession_text = situation.get('possessionText', '')
+            possession_id = situation.get('lastPlay', {}).get('team', {}).get('id', None)
+            if possession_id == self.home_team.id:
+                self.possession = self.home_team
+            else:
+                self.possession = self.away_team
         else:
             self.winner = self.home_team if int(self.home_team.score) > int(self.away_team.score) else self.away_team
 
@@ -414,7 +555,7 @@ def fetch_games():
     
     # Sort the games by date
     games.sort(key=lambda x: x.date)
-    
+
     return games
 ```
 
@@ -444,16 +585,19 @@ CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 0 app:app
 
 # picks.py
 ```
+import numpy as np
+
 class Picks:
     def __init__(self, name, data, games):
         self.name = name
         self.picks: list[Pick] = []
         self.parse_picks(data, games)
-
+        self.pick_array = self.create_picks_array()
+        
     def calculate_correct_picks(self):
         # Calculate the number of correct picks
         return sum(1 for pick in self.picks if pick.correct)
-
+    
     def parse_picks(self, data, games):
         def find_game_by_name(games, name):
             for game in games:
@@ -483,14 +627,13 @@ class Picks:
                 team = find_team_by_abbreviation(game, pick['team'])
             self.picks.append(Pick(game, team))
     
-    
     def analyze_picks(self, games):
         for pick in self.picks:
             if pick.team is None: 
                 continue
             if pick.game and pick.game.winner:
                 pick.correct = pick.game.winner.abbreviation == pick.team.abbreviation
-
+    
     def calculate_streak(self):
         streak_type = None
         streak_count = 0
@@ -506,6 +649,10 @@ class Picks:
             else:
                 break  # Streak ended
         return f"{streak_type}{streak_count}" if streak_count > 0 else ""
+    
+    def create_picks_array(self):
+        picks_array = np.array([1 if pick.team == pick.game.projected_winner else 0 for pick in self.picks])
+        return picks_array
 
 class Pick:
     def __init__(self, game, team):
@@ -539,7 +686,7 @@ class Pick:
         }
         .content-row {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: 1.5fr 1fr;
             gap: 20px;
         }
         .leaderboard, .upcoming-games {
@@ -599,7 +746,7 @@ class Pick:
         }
         .game-card {
             display: grid;
-            grid-template-columns: 1fr 3fr 1fr;
+            grid-template-columns: 2fr 1fr 2fr 1fr 2fr;
             gap: 10px;
             padding: 10px;
             border: 1px solid #ddd;
@@ -671,7 +818,8 @@ class Pick:
                             <th>Name</th>
                             <th>Correct Picks</th>
                             <th>Streak</th>
-                            <th>1st Place Probability</th>
+                            <th>Chance to Win Pool</th>
+                            <th>Odds to Win Pool</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -687,6 +835,7 @@ class Pick:
             </div>
         </div>
     </div>
+    
     <div id="picksModal" class="modal">
         <div class="modal-content">
             <span class="close">&times;</span>
@@ -720,10 +869,18 @@ class Pick:
                                 <div>${game.away_team.display_name}</div>
                                 <div class="team-score">${game.away_team.score}</div>
                             </div>
+                            <div style="text-align: center;">
+                                <div>Win Probability</div>
+                                <div class="game-status">${(game.probabilities.awayWinPercentage*100).toFixed(2)}%</div>
+                            </div>
                             <div class="game-status">
                                 <div>${game.bowl_name}</div>
                                 <div>${game.display_clock} ${game.period ? 'Q' + game.period : ''}</div>
-                                <div>${game.down_distance_text}</div>
+                                <div>${game.possession} Ball, ${game.down_distance_text}</div>
+                            </div>
+                            <div style="text-align: center;">
+                                <div>Win Probability</div>
+                                <div class="game-status">${(game.probabilities.homeWinPercentage*100).toFixed(2)}%</div>
                             </div>
                             <div class="team-info">
                                 <div>${game.home_team.display_name}</div>
@@ -755,7 +912,7 @@ class Pick:
                                 <td>${entry.correct_picks}</td>
                                 <td class="${streakClass}">${entry.streak}</td> 
                                 <td>${entry.win_probability.toFixed(2)}%</td> 
-                                
+                                <td>${entry.odds_to_win >= 0 ? '+' : ''}${entry.odds_to_win}</td>
                             </tr>
                         `;
                         //<td>${entry.projected_total.toFixed(2)}</td>

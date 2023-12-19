@@ -58,7 +58,7 @@ Picks should be submitted in a CSV file with the following columns:
 - `game`: The name of the bowl or game.
 - `team`: The abbreviation of the team picked to win.
 
-Each participant's picks should be in a separate CSV file named in the format `{participant_name}_picks.csv`. The `clean_data.py` script is provided to help convert an Excel file into the required CSV format.
+Each participant's picks should be in a separate CSV file named in the format `{participant_name}_picks.csv`. Pick files should be stored in a folder called named "picks". The `clean_data.py` script is provided to help convert an Excel file into the required CSV format.
 
 ### Team Abbreviations
 

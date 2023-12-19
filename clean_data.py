@@ -10,7 +10,7 @@ df.head()
 
 
 # Create a directory for the picks
-picks_dir = 'picks2'
+picks_dir = 'picks'
 os.makedirs(picks_dir, exist_ok=True)
 
 # Extract the first row as header

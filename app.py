@@ -20,7 +20,7 @@ def read_picks_from_csv(file_path):
 
 # Function to load all picks
 def load_all_picks(games):
-    picks_folder = 'picks2'
+    picks_folder = 'picks'
     all_picks = {}
     for file_name in os.listdir(picks_folder):
         if file_name.endswith('_picks.csv'):
@@ -297,7 +297,7 @@ def index():
 def get_picks(name):
     print(f"Fetching picks for: {name}")  # Debug print
     file_name = f"{name.replace(' ', '_')}_picks.csv"
-    file_path = os.path.join('picks2', file_name)
+    file_path = os.path.join('picks', file_name)
     print(f"Looking for file: {file_path}")  # Debug print
 
     if not os.path.exists(file_path):

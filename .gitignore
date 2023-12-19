@@ -159,7 +159,9 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
-picks/*
-picks2/*
+picks/
+picks2/
+picks_helper/
+
 
 out.txt

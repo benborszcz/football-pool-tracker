@@ -1,6 +1,7 @@
 import requests
 import re
 import datetime
+import json
 
 # Define the Team class
 class Team:
@@ -47,7 +48,9 @@ class Game:
 
         # Extract odds information
         odds_info = event.get('competitions', [{}])[0].get('odds', [{}])
-        if odds_info:
+        self.probabilities = event.get('competitions', [{}])[0].get('situation', {}).get('lastPlay', {}).get('probability', None)
+
+        if odds_info and odds_info[0]:
             odds_info = odds_info[0]  # Assuming the first odds info is what we want
             self.spread = odds_info.get('spread')
             self.over_under = odds_info.get('overUnder')
@@ -55,7 +58,6 @@ class Game:
             # Extract the projected winner from the details field
             details = odds_info.get('details', '')
             match = re.search(r'([A-Z&]+) -?\d+(\.\d+)?', details)
-            self.probabilities = event.get('competitions', [{}])[0].get('situation', {}).get('lastPlay', {}).get('probability', None)
             
             if match:
                 winner_abbreviation = match.group(1)
@@ -67,38 +69,40 @@ class Game:
                     self.projected_winner = self.away_team
                     self.projected_loser = self.home_team
                     #self.spread = -self.spread  # Flip the spread if the away team is the projected winner
-            elif self.probabilities:
-                if self.probabilities['homeWinPercentage'] > self.probabilities['awayWinPercentage']:
-                    self.projected_winner = self.home_team
-                    self.projected_loser = self.away_team
-                else:
-                    self.projected_winner = self.away_team
-                    self.projected_loser = self.home_team
-            elif self.status == "In Progress":
-                home_score = int(self.home_team.score) ** (1.7+self.period/10)
-                away_score = int(self.away_team.score) ** (1.7+self.period/10)
+        elif self.probabilities:
+            print(self.probabilities)
+            if self.probabilities['homeWinPercentage'] > self.probabilities['awayWinPercentage']:
+                print(self.probabilities['homeWinPercentage'])
+                self.projected_winner = self.home_team
+                self.projected_loser = self.away_team
+            else:
+                self.projected_winner = self.away_team
+                self.projected_loser = self.home_team
+        elif self.status == "In Progress":
+            home_score = int(self.home_team.score) ** (1.7+self.period/10)
+            away_score = int(self.away_team.score) ** (1.7+self.period/10)
 
-                total_score = home_score + away_score
+            total_score = home_score + away_score
 
-                if total_score == 0:
-                    self.probabilities = {
-                        'homeWinPercentage': 0.51,
-                        'awayWinPercentage': 0.49
-                    }
-                else:
-                    home_win_percentage = (home_score / total_score)
-                    away_win_percentage = (away_score / total_score)
+            if total_score == 0:
+                self.probabilities = {
+                    'homeWinPercentage': 0.51,
+                    'awayWinPercentage': 0.49
+                }
+            else:
+                home_win_percentage = (home_score / total_score)
+                away_win_percentage = (away_score / total_score)
 
-                    self.probabilities = {
-                        'homeWinPercentage': home_win_percentage,
-                        'awayWinPercentage': away_win_percentage
-                    }
-                if self.probabilities['homeWinPercentage'] > self.probabilities['awayWinPercentage']:
-                    self.projected_winner = self.home_team
-                    self.projected_loser = self.away_team
-                else:
-                    self.projected_winner = self.away_team
-                    self.projected_loser = self.home_team
+                self.probabilities = {
+                    'homeWinPercentage': home_win_percentage,
+                    'awayWinPercentage': away_win_percentage
+                }
+            if self.probabilities['homeWinPercentage'] > self.probabilities['awayWinPercentage']:
+                self.projected_winner = self.home_team
+                self.projected_loser = self.away_team
+            else:
+                self.projected_winner = self.away_team
+                self.projected_loser = self.home_team
             
 
         # Extract situation information if the game is not final
@@ -111,7 +115,10 @@ class Game:
             else:
                 self.possession = self.away_team
         else:
-            self.winner = self.home_team if int(self.home_team.score) > int(self.away_team.score) else self.away_team
+            if self.home_team.abbreviation == "MEM":
+                self.winner = self.home_team
+            else:
+                self.winner = self.home_team if int(self.home_team.score) > int(self.away_team.score) else self.away_team
 
     def set_picks(self, picks):
         self.picks = picks
@@ -120,10 +127,16 @@ class Game:
         return f"**{self.status}** {self.bowl_name}: {self.home_team.location}({self.home_team.abbreviation}) {self.home_team.score} vs. {self.away_team.location}({self.away_team.abbreviation}) {self.away_team.score}"
 
 # Function to fetch events and create Game objects
+# ...
+
 def fetch_games():
     url = 'https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard'
     response = requests.get(url)
     data = response.json()
+    # Save games to a file
+    with open('games3.json', 'w') as file:
+        json.dump(data, file, indent=4)
+    
     events = data.get('events', [])
     games = []
     for event in events:
@@ -133,4 +146,9 @@ def fetch_games():
     # Sort the games by date
     games.sort(key=lambda x: x.date)
 
+    # Save games to a file
+    with open('games2.txt', 'w', encoding='utf-8') as file:
+        for game in games:
+            file.write(str(game) + '\n')
+    
     return games

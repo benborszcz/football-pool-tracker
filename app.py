@@ -100,7 +100,193 @@ from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 
-def simulate_win_probabilities(all_picks, games_dict, num_simulations=2000):
+# Function to simulate the championship game
+def simulate_championship_game(all_picks, games_dict, results, names):
+    # Get the winners of the last two games
+    last_two_games = list(games_dict.values())[-3:-1]
+    if last_two_games[0].status == "Final":
+        winner1 = last_two_games[0].winner
+    else:
+        winner1 = last_two_games[0].projected_winner if results[-2] == 1 else last_two_games[0].projected_loser
+    if last_two_games[1].status == "Final":
+        winner2 = last_two_games[1].winner
+    else:
+        winner2 = last_two_games[1].projected_winner if results[-1] == 1 else last_two_games[1].projected_loser
+
+    # Define odds in a dictionary to avoid multiple if-else statements
+    odds_dict = {
+        ("ALA", "TEX"): 0.53,
+        ("ALA", "WASH"): 0.70,
+        ("MICH", "TEX"): 0.58,
+        ("MICH", "WASH"): 0.6
+    }
+
+    # Get the odds based on the winner abbreviations
+    odds = odds_dict.get((winner1.abbreviation, winner2.abbreviation), 0)
+
+    # Determine the winner of the championship game
+    winner = winner1 if random.random() < odds else winner2
+
+    #print(f"Championship game: {winner.location}")
+    # Initialize win counts
+    win_counts = {name: 0 for name in names}
+
+    for name, picks in all_picks.items():
+        for pick in picks.picks:
+            if pick.game.bowl_name == "CFP National Championship Pres. by AT&T":
+                if pick.team.abbreviation == winner.abbreviation:
+                    #print(f"{name} wins")
+                    win_counts[name] += 1
+
+    return win_counts
+
+import numpy as np
+import random
+from multiprocessing import Pool
+
+def simulate_single_simulation(args):
+    win_percentages, pick_arrays, correct_picks, names, all_picks, games_dict, seed = args
+
+    random.seed(seed)
+    np.random.seed(seed)
+
+    random_array = np.random.rand(win_percentages.size) * 100
+    results = np.where(random_array < win_percentages, 1, 0)
+
+    outcomes = pick_arrays + results
+    win_counts = np.count_nonzero(outcomes == 0, axis=1) + np.count_nonzero(outcomes == 2, axis=1)
+    win_counts += correct_picks
+
+    championship_win_counts = simulate_championship_game(all_picks, games_dict, results, names)
+    #print(championship_win_counts)
+    win_counts += np.array([championship_win_counts[name] for name in names])
+
+    max_wins_indices = np.argwhere(win_counts == np.amax(win_counts)).flatten()
+    champion_index = random.choice(max_wins_indices) if len(max_wins_indices) > 1 else max_wins_indices[0]
+
+    second_place_index = None
+    if len(max_wins_indices) > 1:
+        second_place_index = random.choice(np.delete(max_wins_indices, np.where(max_wins_indices == champion_index)))
+    else:
+        second_max_wins_indices = np.argwhere(win_counts == np.partition(win_counts, -2)[-2]).flatten()
+        second_place_index = random.choice(second_max_wins_indices) if len(second_max_wins_indices) > 1 else second_max_wins_indices[0]
+
+    min_wins_indices = np.argwhere(win_counts == np.amin(win_counts)).flatten()
+    loser_index = random.choice(min_wins_indices) if len(min_wins_indices) > 1 else min_wins_indices[0]
+
+    if names[champion_index] == "Korinne":
+        # Print out who needs to win for each future game
+
+        # sorted games_dict by date
+        sorted_games = sorted(games_dict.values(), key=lambda x: x.date)
+
+        i = 0
+        for game in sorted_games:
+            #print game if it hasn't been played yet
+            if game.status != "Final":
+                print(game)
+                if game.bowl_name == "CFP National Championship Pres. by AT&T":
+                    print("Championship game")
+                    print(all_picks["Korinne"].picks[-1].team.location)
+                    print(championship_win_counts["Korinne"])
+                    break
+                if results[i] == 1:
+                    print(f"{game.projected_winner.location} wins")
+                else:
+                    print(f"{game.projected_loser.location} wins")
+                i+=1
+        
+
+    wins_dict = {name: win_counts[i] for i, name in enumerate(names)}
+
+    return (names[champion_index], names[second_place_index], names[loser_index], wins_dict)
+
+# WILL NOT WORK IN GCLOUD RUN DUE TO SINGLE THREADING IMPLEMENTATION
+def simulate_win_probabilities_multiprocessing(all_picks, games_dict, num_simulations=100000):
+    random.seed(42)
+    np.random.seed(42)
+
+    names = list(all_picks.keys())
+    champion_counts = {name: 0 for name in names}
+    second_place_counts = {name: 0 for name in names}
+    loser_counts = {name: 0 for name in names}
+    total_scores = {name: 0 for name in names}
+    
+    win_percentages = np.array([calculate_winner_percentage(game) if calculate_winner_percentage(game) is not None else -1 for game in games_dict.values()])
+    valid_indices = win_percentages != -1
+    win_percentages = win_percentages[valid_indices]
+    
+    pick_arrays = np.array([all_picks[name].pick_array[valid_indices] for name in names])
+    correct_picks = np.array([all_picks[name].calculate_correct_picks() for name in names])
+
+    # Prepare arguments for parallel processing, including a unique seed for each simulation
+    pool_args = [(win_percentages, pick_arrays, correct_picks, names, all_picks, games_dict, 42 + i) for i in range(num_simulations)]
+
+    # Use multiprocessing to run simulations in parallel
+    with Pool() as pool:
+        simulation_results = pool.map(simulate_single_simulation, pool_args)
+
+    # Process the simulation results to count the number of wins for each name
+    for result in simulation_results:
+        champion, second, loser, wins_dict = result
+        champion_counts[champion] += 1
+        second_place_counts[second] += 1
+        loser_counts[loser] += 1
+        for name, score in wins_dict.items():
+            total_scores[name] += score
+
+    # Calculate win probabilities
+    total_counts = sum(champion_counts.values())
+    win_probabilities = {name: count / total_counts for name, count in champion_counts.items()}
+
+    # Calculate second place probabilities
+    total_counts = sum(second_place_counts.values())
+    second_place_probabilities = {name: count / total_counts for name, count in second_place_counts.items()}
+
+    # Calculate lose probabilities
+    total_counts = sum(loser_counts.values())
+    lose_probabilities = {name: count / total_counts for name, count in loser_counts.items()}
+
+    print("Win probabilities:")
+    sorted_win_probabilities = sorted(win_probabilities.items(), key=lambda x: x[1], reverse=True)
+    for name, probability in sorted_win_probabilities:
+        print(f"{name}: {probability * 100:.2f}%")
+    print("------------------------------")
+    print("Champion counts:")
+    sorted_champion_counts = sorted(champion_counts.items(), key=lambda x: x[1], reverse=True)
+    for name, count in sorted_champion_counts:
+        print(f"{name}: {count}")
+    print("------------------------------------------------------------")
+    print("Second place probabilities:")
+    sorted_second_place_probabilities = sorted(second_place_probabilities.items(), key=lambda x: x[1], reverse=True)
+    for name, probability in sorted_second_place_probabilities:
+        print(f"{name}: {probability * 100:.2f}%")
+    print("------------------------------")
+    print("Second place counts:")
+    sorted_second_place_counts = sorted(second_place_counts.items(), key=lambda x: x[1], reverse=True)
+    for name, count in sorted_second_place_counts:
+        print(f"{name}: {count}")
+    print("------------------------------------------------------------")
+    print("Lose probabilities:")
+    sorted_lose_probabilities = sorted(lose_probabilities.items(), key=lambda x: x[1], reverse=True)
+    for name, probability in sorted_lose_probabilities:
+        print(f"{name}: {probability * 100:.2f}%")
+    print("------------------------------")
+    print("Loser counts:")
+    sorted_loser_counts = sorted(loser_counts.items(), key=lambda x: x[1], reverse=True)
+    for name, count in sorted_loser_counts:
+        print(f"{name}: {count}")
+    print("------------------------------------------------------------")
+    # Calculate average score for each participant
+    average_scores = {name: total_scores[name] / num_simulations for name in names}
+    print("Average scores:")
+    sorted_average_scores = sorted(average_scores.items(), key=lambda x: x[1], reverse=True)
+    for name, score in sorted_average_scores:
+        print(f"{name}: {score}")
+
+    return win_probabilities
+
+def simulate_win_probabilities(all_picks, games_dict, num_simulations=5000):
 
     random.seed(42)
     np.random.seed(42)
@@ -113,6 +299,8 @@ def simulate_win_probabilities(all_picks, games_dict, num_simulations=2000):
     # Pre-calculate the pick arrays and the number of correct picks
     pick_arrays = {name: np.array(all_picks[name].pick_array) for name in names}
     correct_picks = {name: all_picks[name].calculate_correct_picks() for name in names}
+
+    
     max_wins = 0
     for i in range(num_simulations):
         random_array = np.random.rand(len(win_percentages))*100
@@ -135,48 +323,8 @@ def simulate_win_probabilities(all_picks, games_dict, num_simulations=2000):
         # Add the number of correct picks to the win counts
         win_counts += np.array([correct_picks[name] for name in names])
 
-        # Function to simulate the championship game
-        def simulate_championship_game(all_picks, games_dict, results):
-            # Get the winners of the last two games
-            last_two_games = list(games_dict.values())[-3:-1]
-            winner1 = results[-2]
-            winner2 = results[-1]
-            
-            if results[-2] == 1:
-                winner1 = last_two_games[0].projected_winner
-            elif results[-2] == 0:
-                winner1 = last_two_games[0].projected_loser
-            
-            if results[-1] == 1:
-                winner2 = last_two_games[1].projected_winner
-            elif results[-1] == 0:
-                winner2 = last_two_games[1].projected_loser
-
-            odds = 0
-            if winner1.abbreviation == "ALA" and winner2.abbreviation == "TEX":
-                odds = 0.53
-            elif winner1.abbreviation == "ALA" and winner2.abbreviation == "WASH":
-                odds = 0.70
-            elif winner1.abbreviation == "MICH" and winner2.abbreviation == "TEX":
-                odds = 0.58
-            elif winner1.abbreviation == "MICH" and winner2.abbreviation == "WASH":
-                odds = 0.72
-
-            winner = winner2
-            if random.random() < odds:
-                winner = winner1
-
-            win_counts = {name: 0 for name in names}
-            for name, picks in all_picks.items():
-                for pick in picks.picks:
-                    if pick.game.bowl_name == "CFP National Championship Pres. by AT&T":
-                        if pick.game.winner == winner:
-                            win_counts[name] += 1
-
-            return win_counts
-
         # Simulate the championship game
-        championship_win_counts = simulate_championship_game(all_picks, games_dict, results)
+        championship_win_counts = simulate_championship_game(all_picks, games_dict, results, names)
 
         # Add the championship win counts to the total win counts
         for name in names:
@@ -270,6 +418,8 @@ def get_leaderboard():
     
     def convert_to_odds(probability):
         probability = probability / 100
+        if probability == 1:
+            return "N/A"
         if probability == 0:
             return "N/A"
         if probability >= 0.5:

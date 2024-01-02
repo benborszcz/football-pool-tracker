@@ -39,6 +39,11 @@ class Picks:
             else:
                 team = find_team_by_abbreviation(game, pick['team'])
             self.picks.append(Pick(game, team))
+        
+        if self.name == 'Benn': 
+            print(f"Found {len(self.picks)} picks for {self.name}")
+            for pick in self.picks:
+                print(f"{pick.game.bowl_name}: {pick.team.abbreviation}")
     
     def analyze_picks(self, games):
         for pick in self.picks:
